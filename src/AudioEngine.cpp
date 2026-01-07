@@ -1557,10 +1557,35 @@ bool AudioDecoder::seek(double seconds) {
         return false;
     }
 
-    // Pour le DSD natif raw, on ne peut pas seek
+    // DSD native mode - seek at container level (no codec involved)
     if (m_rawDSD) {
-        std::cerr << "[AudioDecoder] Seek not supported in raw DSD mode" << std::endl;
-        return false;
+        std::cout << "[AudioDecoder] DSD seek to " << seconds << " seconds..." << std::endl;
+
+        AVStream* stream = m_formatContext->streams[m_audioStreamIndex];
+        int64_t timestamp = av_rescale_q(
+            static_cast<int64_t>(seconds * AV_TIME_BASE),
+            AV_TIME_BASE_Q,
+            stream->time_base
+        );
+
+        int ret = av_seek_frame(m_formatContext, m_audioStreamIndex,
+                                timestamp, AVSEEK_FLAG_BACKWARD);
+        if (ret < 0) {
+            char errbuf[AV_ERROR_MAX_STRING_SIZE];
+            av_strerror(ret, errbuf, sizeof(errbuf));
+            std::cerr << "[AudioDecoder] DSD seek failed: " << errbuf << std::endl;
+            return false;
+        }
+
+        // Clear stale buffered data from before the seek
+        m_remainingCount = 0;
+        m_eof = false;
+
+        // Reset packet counter for cleaner debug output
+        m_packetCount = 0;
+
+        std::cout << "[AudioDecoder] DSD seek successful to ~" << seconds << "s" << std::endl;
+        return true;
     }
 
     std::cout << "[AudioDecoder] Seeking to " << seconds << " seconds..." << std::endl;
